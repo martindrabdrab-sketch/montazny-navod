@@ -1,8 +1,8 @@
 [plugin]
 id = "sk.montazny.navod"
 name = "Montážny návod"
-version = "0.3.0"
-description = "Tvorba montážnych krokov zo zostavy DWG/DXF a SVG podkladov pre Affinity."
+version = "0.4.0"
+description = "Strom zostavy, montážne kroky, pracovné kópie, BOM a Affinity export."
 author = "Martin"
 license = "GPL-3.0-only"
 repository = "martindrabdrab-sketch/montazny-navod"
