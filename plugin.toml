@@ -1,16 +1,14 @@
 [plugin]
 id = "sk.montazny.navod"
 name = "Montážny návod"
-version = "0.1.0"
+version = "0.2.0"
 description = "Plugin Montážny návod pre Open CAD Studio."
 author = "Martin"
 license = "GPL-3.0-only"
-repository = "martindrabdrab-sketch/demont"
+repository = "martindrabdrab-sketch/montazny-navod"
 
 [opencad]
-api_version = 13
-rustc_version = "__RUSTC_VERSION__"
-acadrust_source = "__ACADRUST_SOURCE__"
+api_version = 14
 ribbon_order = 20
 command_prefixes = [
     "MONTAZ_HIDE_SELECTED",
