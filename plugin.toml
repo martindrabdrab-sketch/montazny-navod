@@ -1,8 +1,8 @@
 [plugin]
 id = "sk.montazny.navod"
 name = "Montážny návod"
-version = "0.2.0"
-description = "Plugin Montážny návod pre Open CAD Studio."
+version = "0.3.0"
+description = "Tvorba montážnych krokov zo zostavy DWG/DXF a SVG podkladov pre Affinity."
 author = "Martin"
 license = "GPL-3.0-only"
 repository = "martindrabdrab-sketch/montazny-navod"
@@ -10,10 +10,5 @@ repository = "martindrabdrab-sketch/montazny-navod"
 [opencad]
 api_version = 14
 ribbon_order = 20
-command_prefixes = [
-    "MONTAZ_HIDE_SELECTED",
-    "MONTAZ_ISOLATE_SELECTED",
-    "MONTAZ_SHOW_ALL",
-    "MONTAZ_SELECTION_INFO",
-]
-xdata_apps = []
+command_prefixes = ["MONTAZ_"]
+xdata_apps = ["MONTAZ_NAVOD"]
