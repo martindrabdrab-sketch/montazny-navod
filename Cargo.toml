@@ -2,7 +2,7 @@
 name = "montazny-navod"
 version = "0.1.0"
 edition = "2021"
-description = "Montazny navod plugin for Open CAD Studio."
+description = "Plugin Montážny návod pre Open CAD Studio."
 license = "GPL-3.0-only"
 
 [workspace]
@@ -11,4 +11,8 @@ license = "GPL-3.0-only"
 crate-type = ["cdylib"]
 
 [dependencies]
-ocs_plugin_api = { path = "../../crates/ocs_plugin_api", features = ["host"] }
+# Official Open CAD Studio plugin contract.
+ocs_plugin_api = { git = "https://github.com/HakanSeven12/OpenCADStudio", features = ["host"] }
+
+# Must match OpenCADStudio 2026.43 codec pin exactly.
+acadrust = { package = "acadrust", git = "https://github.com/HakanSeven12/opencadcodec.git", rev = "24b037a" }
