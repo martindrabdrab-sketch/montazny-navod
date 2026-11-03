@@ -75,6 +75,10 @@ struct ScanEntry {
     step: i32,
     role: String,
     layer: String,
+    entity_type: String,
+    block_name: String,
+    xdata_summary: String,
+    imos_hint: String,
     tagged: bool,
 }
 
@@ -144,6 +148,10 @@ impl BuiltinPlugin for MontaznyNavodPlugin {
             }
             "MONTAZ_LOAD_SELECTED" => {
                 self.load_selected_into_editor(host);
+                true
+            }
+            "MONTAZ_DIAG_SELECTED" => {
+                self.diagnose_selected(host);
                 true
             }
             "MONTAZ_TAG_SELECTED" => {
@@ -328,6 +336,28 @@ impl MontaznyNavodPlugin {
             state.step = entry.step.max(1);
         }
         update_editor_panel(host, &entry);
+    }
+
+    fn diagnose_selected(&self, host: &mut dyn HostApi) {
+        let handles = host.selection();
+        if handles.is_empty() {
+            host.push_error("Montážny návod: najprv označ objekt pre IMOS diagnostiku.");
+            return;
+        }
+
+        for (i, handle) in handles.into_iter().take(20).enumerate() {
+            let entry = scan_one(host, handle, i + 1);
+            host.push_output(&format!(
+                "IMOS DIAG | handle={:X} | type={} | layer={} | block={} | name={} | hint={} | xdata={}",
+                entry.handle.value(),
+                entry.entity_type,
+                entry.layer,
+                if entry.block_name.is_empty() { "-" } else { &entry.block_name },
+                entry.name,
+                if entry.imos_hint.is_empty() { "-" } else { &entry.imos_hint },
+                if entry.xdata_summary.is_empty() { "-" } else { &entry.xdata_summary },
+            ));
+        }
     }
 
     fn tag_selected(&self, host: &mut dyn HostApi) {
@@ -690,6 +720,10 @@ fn scan_one(host: &mut dyn HostApi, handle: Handle, ordinal: usize) -> ScanEntry
             step: 0,
             role: "MASTER".to_string(),
             layer: String::new(),
+            entity_type: "Unknown".to_string(),
+            block_name: String::new(),
+            xdata_summary: String::new(),
+            imos_hint: String::new(),
             tagged: false,
         },
     }
@@ -698,13 +732,25 @@ fn scan_one(host: &mut dyn HostApi, handle: Handle, ordinal: usize) -> ScanEntry
 fn scan_entity(host: &dyn HostApi, entity: &EntityType, ordinal: usize) -> ScanEntry {
     let handle = entity.as_entity().handle();
     let layer = entity.as_entity().layer().to_string();
-    let raw_name = match entity {
-        EntityType::Insert(insert) if !insert.block_name.trim().is_empty() => insert.block_name.clone(),
-        _ if !layer.trim().is_empty() && layer != "0" => layer.clone(),
-        EntityType::Solid3D(_) => format!("3D diel {ordinal:03}"),
-        EntityType::Body(_) => format!("Body {ordinal:03}"),
-        EntityType::Mesh(_) => format!("Mesh {ordinal:03}"),
-        _ => format!("Objekt {ordinal:03}"),
+    let block_name = match entity {
+        EntityType::Insert(insert) => insert.block_name.clone(),
+        _ => String::new(),
+    };
+    let entity_type = entity_type_name(entity).to_string();
+    let xdata_summary = summarize_xdata(entity);
+    let imos_hint = imos_hint(entity, &block_name, &layer);
+
+    let raw_name = if !imos_hint.is_empty() {
+        imos_hint.clone()
+    } else {
+        match entity {
+            EntityType::Insert(insert) if !insert.block_name.trim().is_empty() => insert.block_name.clone(),
+            _ if !layer.trim().is_empty() && layer != "0" => layer.clone(),
+            EntityType::Solid3D(_) => format!("3D diel {ordinal:03}"),
+            EntityType::Body(_) => format!("Body {ordinal:03}"),
+            EntityType::Mesh(_) => format!("Mesh {ordinal:03}"),
+            _ => format!("Objekt {ordinal:03}"),
+        }
     };
 
     if let Some(meta) = read_meta(host, handle) {
@@ -712,21 +758,21 @@ fn scan_entity(host: &dyn HostApi, entity: &EntityType, ordinal: usize) -> ScanE
             handle,
             cabinet: meta.cabinet.max(1),
             kind: meta.kind,
-            name: if meta.name.trim().is_empty() {
-                raw_name
-            } else {
-                meta.name
-            },
+            name: if meta.name.trim().is_empty() { raw_name } else { meta.name },
             qty: meta.qty.max(1),
             step: meta.step.max(0),
             role: meta.role,
             layer,
+            entity_type,
+            block_name,
+            xdata_summary,
+            imos_hint,
             tagged: true,
         };
     }
 
-    let kind = infer_kind(&raw_name, &layer);
-    let cabinet = infer_cabinet(&raw_name, &layer);
+    let kind = infer_kind_imos(&raw_name, &layer, &block_name, &xdata_summary);
+    let cabinet = infer_cabinet(&format!("{} {}", raw_name, block_name), &layer);
     ScanEntry {
         handle,
         cabinet,
@@ -736,17 +782,97 @@ fn scan_entity(host: &dyn HostApi, entity: &EntityType, ordinal: usize) -> ScanE
         step: 0,
         role: "MASTER".to_string(),
         layer,
+        entity_type,
+        block_name,
+        xdata_summary,
+        imos_hint,
         tagged: false,
     }
 }
 
-fn infer_kind(name: &str, layer: &str) -> ItemKind {
-    let hay = format!("{} {}", name, layer).to_ascii_lowercase();
+fn entity_type_name(entity: &EntityType) -> &'static str {
+    match entity {
+        EntityType::Insert(_) => "INSERT",
+        EntityType::Solid3D(_) => "3DSOLID",
+        EntityType::Body(_) => "BODY",
+        EntityType::Mesh(_) => "MESH",
+        EntityType::Line(_) => "LINE",
+        EntityType::Polyline(_) => "POLYLINE",
+        EntityType::Polyline2D(_) => "POLYLINE2D",
+        EntityType::Polyline3D(_) => "POLYLINE3D",
+        EntityType::Arc(_) => "ARC",
+        EntityType::Circle(_) => "CIRCLE",
+        EntityType::Table(_) => "TABLE",
+        _ => "OTHER",
+    }
+}
+
+fn xdata_value_text(value: &XDataValue) -> Option<String> {
+    match value {
+        XDataValue::String(v) => Some(v.clone()),
+        XDataValue::Integer16(v) => Some(v.to_string()),
+        XDataValue::Integer32(v) => Some(v.to_string()),
+        XDataValue::Real(v) => Some(format!("{v:.4}")),
+        _ => None,
+    }
+}
+
+fn summarize_xdata(entity: &EntityType) -> String {
+    let mut parts = Vec::new();
+    for record in entity.common().extended_data.records().iter().take(12) {
+        let values: Vec<String> = record.values.iter().filter_map(xdata_value_text).take(8).collect();
+        if values.is_empty() {
+            parts.push(record.application_name.clone());
+        } else {
+            parts.push(format!("{}=[{}]", record.application_name, values.join("|")));
+        }
+    }
+    truncate_diag(&parts.join("; "), 360)
+}
+
+fn imos_hint(entity: &EntityType, block: &str, layer: &str) -> String {
+    let mut candidates = Vec::new();
+    candidates.push(block.to_string());
+    candidates.push(layer.to_string());
+
+    for record in entity.common().extended_data.records() {
+        candidates.push(record.application_name.clone());
+        for value in &record.values {
+            if let Some(text) = xdata_value_text(value) {
+                candidates.push(text);
+            }
+        }
+    }
+
+    let keywords = ["IMOS", "ARTICLE", "ITPART", "KR_", "QUADRO", "DRAWER", "ZASUV", "ZÁSUV", "KOVAN", "FITTING"];
+    for candidate in candidates {
+        let upper = candidate.to_ascii_uppercase();
+        if keywords.iter().any(|k| upper.contains(k)) {
+            let cleaned = candidate.trim();
+            if !cleaned.is_empty() && cleaned != "IMOS_" {
+                return truncate_diag(cleaned, 100);
+            }
+        }
+    }
+    String::new()
+}
+
+fn truncate_diag(value: &str, max: usize) -> String {
+    if value.chars().count() <= max {
+        return value.to_string();
+    }
+    value.chars().take(max.saturating_sub(1)).collect::<String>() + "…"
+}
+
+
+fn infer_kind_imos(name: &str, layer: &str, block: &str, xdata: &str) -> ItemKind {
+    let hay = format!("{} {} {} {}", name, layer, block, xdata).to_ascii_lowercase();
     let hardware_words = [
         "kovanie", "hardware", "fitting", "hinge", "zaves", "záves", "kolik", "kolík",
         "dowel", "screw", "vrut", "skrut", "bolt", "matica", "nut", "cam", "minifix",
         "rafix", "confirmat", "konfirm", "drawer slide", "výsuv", "vysuv", "handle",
-        "uchyt", "úchyt", "pánt", "pant", "connector", "spoj",
+        "uchyt", "úchyt", "pánt", "pant", "connector", "spoj", "quadro", "kovan",
+        "itpart", "fitting", "runner", "slide", "guide",
     ];
     if hardware_words.iter().any(|word| hay.contains(word)) {
         ItemKind::Hardware
@@ -880,6 +1006,7 @@ fn build_panel(entries: &[ScanEntry], state_lock: &Mutex<PluginState>) -> PanelD
             controls: vec![
                 button("refresh", "Obnoviť strom", "MONTAZ_REFRESH"),
                 button("load", "Načítať výber", "MONTAZ_LOAD_SELECTED"),
+                button("diag", "IMOS diagnostika", "MONTAZ_DIAG_SELECTED"),
             ],
             align_h: None,
             align_v: None,
@@ -1076,6 +1203,41 @@ fn build_panel(entries: &[ScanEntry], state_lock: &Mutex<PluginState>) -> PanelD
         });
     }
 
+    let diag_rows: Vec<Vec<String>> = entries
+        .iter()
+        .filter(|e| !e.imos_hint.is_empty() || !e.xdata_summary.is_empty())
+        .take(120)
+        .map(|e| vec![
+            format!("{:X}", e.handle.value()),
+            e.entity_type.clone(),
+            e.layer.clone(),
+            if e.block_name.is_empty() { "-".to_string() } else { e.block_name.clone() },
+            if e.imos_hint.is_empty() { "-".to_string() } else { e.imos_hint.clone() },
+            if e.xdata_summary.is_empty() { "-".to_string() } else { e.xdata_summary.clone() },
+        ])
+        .collect();
+
+    panel = panel.with_control(DialogControl::Fields {
+        id: "imos_diag".to_string(),
+        title: Some(format!("IMOS diagnostika ({})", diag_rows.len())),
+        controls: vec![DialogControl::Table {
+            id: "imos_diag_table".to_string(),
+            label: Some("Handle / typ / vrstva / blok / IMOS / XDATA".to_string()),
+            headers: vec![
+                "Handle".to_string(),
+                "Typ".to_string(),
+                "Vrstva".to_string(),
+                "Blok".to_string(),
+                "IMOS".to_string(),
+                "XDATA".to_string(),
+            ],
+            rows: diag_rows,
+            allow_add: false,
+            allow_delete: false,
+        }],
+        collapsed: true,
+    });
+
     let bom_rows = bom_rows(entries);
     panel.with_control(DialogControl::Table {
         id: "bom_preview".to_string(),
@@ -1104,7 +1266,7 @@ fn button(id: &str, label: &str, action: &str) -> DialogControl {
 }
 
 fn tree_button(index: usize, entry: &ScanEntry) -> DialogControl {
-    let tag = if entry.tagged { "●" } else { "○" };
+    let tag = if entry.tagged { "●" } else if !entry.imos_hint.is_empty() { "◆" } else { "○" };
     let role = if entry.role == "WORK" { " [KÓPIA]" } else { "" };
     let step = if entry.step > 0 {
         format!(" K{}", entry.step)
