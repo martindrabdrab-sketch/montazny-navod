@@ -372,7 +372,7 @@ impl MontaznyNavodPlugin {
                 step,
                 role: "MASTER".to_string(),
             };
-            if host.write_record(handle, meta_record(&meta)).is_ok() {
+            if host.write_record(handle, meta_record(&meta)) {
                 ok += 1;
             }
         }
