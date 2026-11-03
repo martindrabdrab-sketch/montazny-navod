@@ -1,4 +1,4 @@
-name: build-and-release-v0.2.0
+name: build-and-release-v0.3.0
 
 on:
   push:
@@ -33,14 +33,14 @@ jobs:
           Copy-Item "target/release/montazny_navod.dll" "dist/sk.montazny.navod-windows-x86_64.dll"
           Copy-Item "plugin.toml" "dist/plugin.toml"
 
-      - name: Create or update GitHub Release v0.2.0
+      - name: Create or update GitHub Release v0.3.0
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          gh release view v0.2.0 *> $null
+          gh release view v0.3.0 *> $null
           if ($LASTEXITCODE -ne 0) {
-            gh release create v0.2.0 "dist/sk.montazny.navod-windows-x86_64.dll" "dist/plugin.toml" --title "Montážny návod v0.2.0" --notes "Plugin pre Open CAD Studio v2026.44 / Plugin API 14." --target main
+            gh release create v0.3.0 "dist/sk.montazny.navod-windows-x86_64.dll" "dist/plugin.toml" --title "Montážny návod v0.3.0" --notes "Montážne kroky, XDATA a SVG export pre Affinity." --target main
           } else {
-            gh release upload v0.2.0 "dist/sk.montazny.navod-windows-x86_64.dll" "dist/plugin.toml" --clobber
+            gh release upload v0.3.0 "dist/sk.montazny.navod-windows-x86_64.dll" "dist/plugin.toml" --clobber
           }
