@@ -11,8 +11,8 @@ license = "GPL-3.0-only"
 crate-type = ["cdylib"]
 
 [dependencies]
-# Official Open CAD Studio plugin contract.
-ocs_plugin_api = { git = "https://github.com/HakanSeven12/OpenCADStudio", features = ["host"] }
+# Pin the plugin API to the exact Open CAD Studio release used by the user.
+ocs_plugin_api = { git = "https://github.com/HakanSeven12/OpenCADStudio", tag = "v2026.43", features = ["host"] }
 
-# Must match OpenCADStudio 2026.43 codec pin exactly.
+# Must match the codec pin used by Open CAD Studio v2026.43.
 acadrust = { package = "acadrust", git = "https://github.com/HakanSeven12/opencadcodec.git", rev = "24b037a" }
