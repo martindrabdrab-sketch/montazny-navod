@@ -1,0 +1,56 @@
+name: build-and-release-v0.1.0
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build-release:
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Install Rust stable
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build plugin
+        shell: pwsh
+        run: |
+          cargo build --release
+          if (-not (Test-Path "target/release/montazny_navod.dll")) { throw "montazny_navod.dll was not produced" }
+
+      - name: Prepare release files
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path dist | Out-Null
+          Copy-Item "target/release/montazny_navod.dll" "dist/sk.montazny.navod-windows-x86_64.dll"
+          $rustcVersion = (rustc --version).Trim()
+          $lock = Get-Content "Cargo.lock" -Raw
+          $m = [regex]::Match($lock, '(?ms)\[\[package\]\]\s*name = "acadrust".*?source = "([^"]+)"')
+          if (-not $m.Success) { throw "Cannot find acadrust source in Cargo.lock" }
+          $acadrustSource = $m.Groups[1].Value
+          $manifest = Get-Content "plugin.toml" -Raw
+          $manifest = $manifest.Replace("__RUSTC_VERSION__", $rustcVersion)
+          $manifest = $manifest.Replace("__ACADRUST_SOURCE__", $acadrustSource)
+          Set-Content -Path "dist/plugin.toml" -Value $manifest -Encoding UTF8
+          Write-Host "rustc=$rustcVersion"
+          Write-Host "acadrust_source=$acadrustSource"
+
+      - name: Create or update GitHub Release v0.1.0
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release view v0.1.0 *> $null
+          if ($LASTEXITCODE -ne 0) {
+            gh release create v0.1.0 "dist/sk.montazny.navod-windows-x86_64.dll" "dist/plugin.toml" --title "Montážny návod v0.1.0" --notes "Prvá testovacia verzia pluginu Montážny návod pre Open CAD Studio v2026.43." --target main
+          } else {
+            gh release upload v0.1.0 "dist/sk.montazny.navod-windows-x86_64.dll" "dist/plugin.toml" --clobber
+          }
