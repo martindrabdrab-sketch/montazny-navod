@@ -1275,4 +1275,4 @@ impl CadModule for MontaznyNavodModule {
     }
 }
 
-export_plugin!(MontaznyNavodPlugin);
+export_plugin!(MontaznyNavodPlugin::default());
