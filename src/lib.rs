@@ -4,6 +4,8 @@
 //! montage steps and Affinity SVG workflow.
 
 use std::collections::{BTreeMap, HashMap};
+use std::fs;
+use std::path::PathBuf;
 use std::sync::Mutex;
 
 use ocs_plugin_api::dialog::{DialogControl, DialogValue, PanelDef};
@@ -152,6 +154,10 @@ impl BuiltinPlugin for MontaznyNavodPlugin {
             }
             "MONTAZ_DIAG_SELECTED" => {
                 self.diagnose_selected(host);
+                true
+            }
+            "MONTAZ_ANALYZE_DWG" => {
+                self.analyze_imos_dwg(host);
                 true
             }
             "MONTAZ_TAG_SELECTED" => {
@@ -336,6 +342,92 @@ impl MontaznyNavodPlugin {
             state.step = entry.step.max(1);
         }
         update_editor_panel(host, &entry);
+    }
+
+    fn analyze_imos_dwg(&self, host: &mut dyn HostApi) {
+        let entries = scan_drawing(host);
+        if entries.is_empty() {
+            host.push_error("Montážny návod: DWG neobsahuje žiadne čitateľné entity.");
+            return;
+        }
+
+        let mut report = String::new();
+        report.push_str("MONTAZNY NAVOD - IMOS DWG ANALYZA\n");
+        report.push_str("=================================\n\n");
+
+        let source_path = host.document_path(host.tab_index() as u64);
+        if let Some(path) = &source_path {
+            report.push_str(&format!("DWG: {}\n", path.display()));
+        } else {
+            report.push_str("DWG: <cesta nie je dostupna cez Host API>\n");
+        }
+        report.push_str(&format!("Pocet entit: {}\n", entries.len()));
+
+        let imos_count = entries.iter().filter(|e| !e.imos_hint.is_empty()).count();
+        let tagged_count = entries.iter().filter(|e| e.tagged).count();
+        let parts = entries.iter().filter(|e| e.kind == ItemKind::Part).count();
+        let hardware = entries.iter().filter(|e| e.kind == ItemKind::Hardware).count();
+        report.push_str(&format!("IMOS rozpoznane: {}\n", imos_count));
+        report.push_str(&format!("Plugin XDATA: {}\n", tagged_count));
+        report.push_str(&format!("Dielce: {}\n", parts));
+        report.push_str(&format!("Kovanie: {}\n\n", hardware));
+
+        let mut by_cabinet: BTreeMap<i32, usize> = BTreeMap::new();
+        for entry in &entries {
+            *by_cabinet.entry(entry.cabinet).or_insert(0) += 1;
+        }
+        report.push_str("SKRINKY\n--------\n");
+        for (cabinet, count) in by_cabinet {
+            report.push_str(&format!("S{:02}: {} objektov\n", cabinet, count));
+        }
+        report.push_str("\nENTITY DETAIL\n-------------\n");
+
+        for (index, entry) in entries.iter().enumerate() {
+            report.push_str(&format!("\n[{:04}] HANDLE {:X}\n", index + 1, entry.handle.value()));
+            report.push_str(&format!("Type: {}\n", entry.entity_type));
+            report.push_str(&format!("Layer: {}\n", if entry.layer.is_empty() { "-" } else { &entry.layer }));
+            report.push_str(&format!("Block: {}\n", if entry.block_name.is_empty() { "-" } else { &entry.block_name }));
+            report.push_str(&format!("Cabinet: S{:02}\n", entry.cabinet));
+            report.push_str(&format!("Kind: {}\n", entry.kind.label()));
+            report.push_str(&format!("Name: {}\n", entry.name));
+            report.push_str(&format!("Qty: {}\n", entry.qty));
+            report.push_str(&format!("Step: {}\n", entry.step));
+            report.push_str(&format!("Role: {}\n", entry.role));
+            report.push_str(&format!("Tagged: {}\n", entry.tagged));
+            report.push_str(&format!("IMOS hint: {}\n", if entry.imos_hint.is_empty() { "-" } else { &entry.imos_hint }));
+            report.push_str(&format!("XDATA: {}\n", if entry.xdata_summary.is_empty() { "-" } else { &entry.xdata_summary }));
+        }
+
+        report.push_str("\n\nKUSOVNIK - AKTUALNE ROZPOZNANIE\n-------------------------------\n");
+        for row in bom_rows(&entries) {
+            report.push_str(&format!("{} | {} | {} | qty={} | krok={}\n",
+                row.get(0).map(String::as_str).unwrap_or("-"),
+                row.get(1).map(String::as_str).unwrap_or("-"),
+                row.get(2).map(String::as_str).unwrap_or("-"),
+                row.get(3).map(String::as_str).unwrap_or("-"),
+                row.get(4).map(String::as_str).unwrap_or("-"),
+            ));
+        }
+
+        let output_path = analysis_report_path(source_path);
+        match fs::write(&output_path, report.as_bytes()) {
+            Ok(()) => {
+                host.push_info(&format!(
+                    "Montážny návod: IMOS analýza uložená: {}",
+                    output_path.display()
+                ));
+                host.push_output(&format!("IMOS ANALYZA TXT: {}", output_path.display()));
+            }
+            Err(error) => {
+                host.push_error(&format!(
+                    "Montážny návod: nepodarilo sa uložiť IMOS analýzu do {}: {}",
+                    output_path.display(),
+                    error
+                ));
+            }
+        }
+
+        self.rebuild_panel(host, true);
     }
 
     fn diagnose_selected(&self, host: &mut dyn HostApi) {
@@ -1011,6 +1103,7 @@ fn build_panel(entries: &[ScanEntry], state_lock: &Mutex<PluginState>) -> PanelD
             align_h: None,
             align_v: None,
         })
+        .with_control(button("analyze_dwg", "Analyzovať IMOS DWG → TXT", "MONTAZ_ANALYZE_DWG"))
         .with_control(DialogControl::Fields {
             id: "editor".to_string(),
             title: Some("Zaradenie objektu".to_string()),
@@ -1336,6 +1429,21 @@ fn update_editor_panel(host: &mut dyn HostApi, entry: &ScanEntry) {
     host.update_panel(PANEL_ID, values);
 }
 
+fn analysis_report_path(source_path: Option<PathBuf>) -> PathBuf {
+    if let Some(path) = source_path {
+        let stem = path
+            .file_stem()
+            .and_then(|s| s.to_str())
+            .filter(|s| !s.is_empty())
+            .unwrap_or("DWG");
+        let file_name = format!("{stem}_IMOS_ANALYZA.txt");
+        return path.with_file_name(file_name);
+    }
+
+    let base = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    base.join("IMOS_DWG_ANALYZA.txt")
+}
+
 fn run_host_command(host: &mut dyn HostApi, command: &str, label: &str) {
     match host.run_command(CommandRequest::Run {
         line: command.to_string(),
@@ -1386,6 +1494,12 @@ impl CadModule for MontaznyNavodModule {
                             label: "Obnoviť\nDWG",
                             icon: IconKind::Glyph("↻"),
                             event: ModuleEvent::Command("MONTAZ_REFRESH".to_string()),
+                        }),
+                        RibbonItem::LargeTool(ToolDef {
+                            id: "MONTAZ_ANALYZE_DWG",
+                            label: "IMOS\nanalýza",
+                            icon: IconKind::Glyph("i"),
+                            event: ModuleEvent::Command("MONTAZ_ANALYZE_DWG".to_string()),
                         }),
                     ],
                 },
