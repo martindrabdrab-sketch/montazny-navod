@@ -589,15 +589,12 @@ impl MontaznyNavodPlugin {
             table.set_cell_text(r, 2, &name);
             table.set_cell_text(r, 3, &qty.to_string());
             table.set_cell_text(r, 4, &format!("S{:02}", cabinet));
-            table.set_cell_text(
-                r,
-                5,
-                if step > 0 {
-                    &step.to_string()
-                } else {
-                    "-"
-                },
-            );
+            let step_text = if step > 0 {
+                step.to_string()
+            } else {
+                "-".to_string()
+            };
+            table.set_cell_text(r, 5, &step_text);
         }
 
         host.begin_undo_group("MONTAZ: BOM tabuľka");
