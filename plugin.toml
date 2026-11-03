@@ -1,8 +1,8 @@
 [plugin]
 id = "sk.montazny.navod"
 name = "Montážny návod"
-version = "0.4.0"
-description = "Strom zostavy, montážne kroky, pracovné kópie, BOM a Affinity export."
+version = "0.5.0"
+description = "IMOS-aware strom zostavy, diagnostika DWG/XDATA, montážne kroky, BOM a Affinity export."
 author = "Martin"
 license = "GPL-3.0-only"
 repository = "martindrabdrab-sketch/montazny-navod"
