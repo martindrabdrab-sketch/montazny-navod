@@ -8,6 +8,10 @@ on:
 permissions:
   contents: write
 
+concurrency:
+  group: montazny-navod-release
+  cancel-in-progress: true
+
 jobs:
   build-release:
     runs-on: windows-latest
