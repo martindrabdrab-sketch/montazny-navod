@@ -405,30 +405,35 @@ impl MontaznyNavodPlugin {
         }
 
         let step = self.state.lock().map(|s| s.step.max(1)).unwrap_or(1);
-        let sources: Vec<(EntityType, Meta)> = {
+        let cloned_entities: Vec<(Handle, EntityType)> = {
             let doc = host.document();
             handles
                 .iter()
-                .filter_map(|&handle| {
-                    let mut entity = doc.get_entity(handle)?.clone();
-                    entity.common_mut().handle = Handle::NULL;
-                    entity.common_mut().owner_handle = Handle::NULL;
-                    entity.common_mut().reactors.clear();
-                    entity.common_mut().xdictionary_handle = None;
-
-                    let src = scan_one(host, handle, 1);
-                    let meta = Meta {
-                        cabinet: src.cabinet,
-                        kind: src.kind,
-                        name: src.name,
-                        qty: src.qty.max(1),
-                        step,
-                        role: "WORK".to_string(),
-                    };
-                    Some((entity, meta))
-                })
+                .filter_map(|&handle| doc.get_entity(handle).cloned().map(|entity| (handle, entity)))
                 .collect()
         };
+
+        let sources: Vec<(EntityType, Meta)> = cloned_entities
+            .into_iter()
+            .enumerate()
+            .map(|(i, (handle, mut entity))| {
+                entity.common_mut().handle = Handle::NULL;
+                entity.common_mut().owner_handle = Handle::NULL;
+                entity.common_mut().reactors.clear();
+                entity.common_mut().xdictionary_handle = None;
+
+                let src = scan_one(host, handle, i + 1);
+                let meta = Meta {
+                    cabinet: src.cabinet,
+                    kind: src.kind,
+                    name: src.name,
+                    qty: src.qty.max(1),
+                    step,
+                    role: "WORK".to_string(),
+                };
+                (entity, meta)
+            })
+            .collect();
 
         if sources.is_empty() {
             host.push_error("Montážny návod: označené objekty sa nepodarilo skopírovať.");
@@ -897,7 +902,7 @@ fn build_panel(entries: &[ScanEntry], state_lock: &Mutex<PluginState>) -> PanelD
                     id: "item_type".to_string(),
                     label: "Typ".to_string(),
                     options: vec!["Dielec".to_string(), "Kovanie".to_string()],
-                    default_index: usize::from(snapshot.1 == ItemKind::Hardware),
+                    default_index: if snapshot.1 == ItemKind::Hardware { 1 } else { 0 },
                 },
                 DialogControl::Text {
                     id: "item_name".to_string(),
@@ -1155,7 +1160,7 @@ fn update_editor_panel(host: &mut dyn HostApi, entry: &ScanEntry) {
     values.insert(
         "item_type".to_string(),
         DialogValue::Choice {
-            index: usize::from(entry.kind == ItemKind::Hardware),
+            index: if entry.kind == ItemKind::Hardware { 1 } else { 0 },
             text: entry.kind.label().to_string(),
         },
     );
