@@ -6,13 +6,14 @@
 use std::collections::{BTreeMap, HashMap};
 use std::sync::Mutex;
 
-use acadrust::entities::{EntityCommon, TableBuilder};
-use acadrust::types::Vector3;
-use acadrust::xdata::{ExtendedDataRecord, XDataValue};
-use acadrust::{EntityType, Handle};
 use ocs_plugin_api::dialog::{DialogControl, DialogValue, PanelDef};
 use ocs_plugin_api::export_plugin;
-use ocs_plugin_api::host::{BuiltinPlugin, CommandRequest, HostApi, HostNotification};
+use ocs_plugin_api::host::{
+    acadrust as codec, BuiltinPlugin, CommandRequest, EntityType, ExtendedDataRecord, Handle,
+    HostApi, HostNotification, XDataValue,
+};
+use codec::entities::{EntityCommon, TableBuilder};
+use codec::types::Vector3;
 use ocs_plugin_api::manifest::{ApiVersion, PluginManifest};
 use ocs_plugin_api::ribbon::{
     CadModule, IconKind, ModuleEvent, RibbonGroup, RibbonItem, ToolDef,
